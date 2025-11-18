@@ -1,9 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const { createToken, mintToken, transferToken } = require('../controllers/tokenController');
+const tokenController = require('../controllers/tokenController');
 
-router.post('/create', createToken);
-router.post('/mint', mintToken);
-router.post('/transfer', transferToken);
+// Route to create the NFT collection (one-time setup)
+router.post('/create-token', tokenController.createToken);
+
+// Route to mint a new NFT receipt with metadata
+router.post('/mint-token', tokenController.mintToken);
+
+// Route to transfer the newly minted NFT to the user
+router.post('/transfer-token', tokenController.transferToken);
 
 module.exports = router;

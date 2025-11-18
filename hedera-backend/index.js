@@ -1,17 +1,25 @@
+require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
+const bodyParser = require('body-parser');
 const tokenRoutes = require('./routes/tokenRoutes');
 
-require('dotenv').config();
-
 const app = express();
-const port = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json());
+// Middleware
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
+// Use the API routes
 app.use('/api', tokenRoutes);
 
-app.listen(port, () => {
-  console.log(`Backend server running on port ${port}`);
+// Simple health check endpoint
+app.get('/', (req, res) => {
+    res.send('NFT Receipt Backend is running.');
+});
+
+// Start the server
+app.listen(PORT, () => {
+    console.log(`🚀 Server listening on port ${PORT}`);
+    console.log('Ensure you have a .env file with OPERATOR_ID and OPERATOR_KEY set.');
 });
