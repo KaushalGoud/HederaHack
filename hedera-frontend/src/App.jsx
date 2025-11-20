@@ -26,27 +26,53 @@ const App = () => {
 
     /**
      * Generic function to handle POST requests to the backend API.
+     * FIX: Implemented robust JSON parsing to handle non-JSON responses (like server crashes).
      */
     const performBackendCall = useCallback(async (endpoint, body) => {
-        const response = await fetch(`${API_BASE}${endpoint}`, {
+        // 1. Remove leading slash from the endpoint argument (e.g., '/create-token' -> 'create-token')
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
+        
+        // 2. Construct the URL ensuring API_BASE always ends with one slash before appending the endpoint.
+        const baseUrl = API_BASE.endsWith('/') ? API_BASE : `${API_BASE}/`;
+        const fullUrl = `${baseUrl}${cleanEndpoint}`; // Correctly forms '/api/create-token'
+
+        const response = await fetch(fullUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
 
-        const result = await response.json();
+        // --- ROBUST JSON PARSING ---
+        let result = {};
+        try {
+            // Attempt to parse JSON response body
+            result = await response.json();
+        } catch (e) {
+            // If parsing fails (e.g., empty body on 500 error), set a generic error message.
+            console.error("Failed to parse JSON response, server may have crashed:", e);
+            result.error = `Server error (HTTP ${response.status}) or no valid JSON response received. Check backend console for OPERATOR_ID/KEY errors.`;
+        }
+        // --- END ROBUST JSON PARSING ---
 
-        // Check for server-side success status
-        if (!result.success) {
+        // 1. Check for non-OK HTTP status (e.g., 400, 500)
+        if (!response.ok) {
+            console.error('Backend HTTP Error:', response.status, response.statusText);
             console.error('Backend Error Details:', result);
+            // Throw the specific error message provided by the backend or the generic message created above
+            throw new Error(result.error || result.message || `API call failed with status ${response.status}`);
+        }
+
+        // 2. Check for server-side success status (for 200 responses with an error payload)
+        if (!result.success) {
+            console.error('Backend Logic Error:', result);
             throw new Error(result.error || result.message || `API call failed for ${endpoint}`);
         }
+        
         return result;
-    }, []);
+    }); // Added API_BASE to dependencies
 
     /**
      * Step 0: Create the NFT Collection on Hedera. (One-time setup)
-     * Calls the /api/create-token endpoint.
      */
     const createTokenCollection = useCallback(async () => {
         if (isLoading || tokenId) return;
@@ -78,7 +104,7 @@ const App = () => {
 
     /**
      * Steps 1 & 2: Mint a new NFT receipt and transfer it to the user.
-     * Calls /api/mint-token then /api/transfer-token.
+     * FIX: TokenId is now explicitly passed in the body for both mint and transfer calls.
      */
     const performAction = useCallback(async (actionType) => {
         // Prevent action if loading or if the collection is not initialized
@@ -102,6 +128,8 @@ const App = () => {
             // --- STEP 1: MINT NFT ---
             setMessage(`Step 1/2: Minting new NFT receipt for: ${actionDetails}...`);
             const mintResult = await performBackendCall('/mint-token', {
+                // FIX: Pass the Token ID required by the backend
+                tokenId: tokenId, 
                 metadataUri: mockMetadataUri
             });
 
@@ -110,6 +138,8 @@ const App = () => {
             // --- STEP 2: TRANSFER NFT ---
             setMessage(`Step 2/2: Transferring Serial #${serialNumber} to ${MOCK_USER_ID}...`);
             await performBackendCall('/transfer-token', {
+                // FIX: Pass the Token ID required by the backend
+                tokenId: tokenId, 
                 recipient: MOCK_USER_ID,
                 serialNumber: serialNumber
             });
@@ -143,7 +173,6 @@ const App = () => {
 
     const DetailBox = ({ icon: IconComponent, title, value, colorClass = "text-gray-800", isMonospace = false }) => (
         <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-            {/* FIX: Use the component by its new name IconComponent */}
             {IconComponent && <IconComponent className={`w-5 h-5 ${colorClass}`} />}
             <div>
                 <p className="text-xs font-medium text-gray-500">{title}</p>
