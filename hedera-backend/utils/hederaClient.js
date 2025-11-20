@@ -1,62 +1,68 @@
+// utils/hederaClient.js
 require('dotenv').config();
-const { Client, PrivateKey, Mnemonic } = require('@hashgraph/sdk');
+const { Client, PrivateKey, Mnemonic, AccountId } = require('@hashgraph/sdk');
 
-const operatorId = process.env.OPERATOR_ID;
-const operatorKey = process.env.OPERATOR_KEY;
+const operatorIdStr = process.env.OPERATOR_ID;
+const operatorKeyStr = process.env.OPERATOR_KEY;
+const network = process.env.HEDERA_NETWORK || 'testnet';
 
-// --- DEBUG LOGGING ---
-console.log('DEBUG: OPERATOR_ID read:', operatorId ? 'Found' : 'Missing');
-console.log('DEBUG: OPERATOR_KEY length:', operatorKey ? operatorKey.length : 'Missing');
-// ----------------------------------------------------------------------
+// --- Validation ---
+console.log('DEBUG: OPERATOR_ID read:', operatorIdStr ? 'Found' : 'Missing');
+console.log('DEBUG: OPERATOR_KEY length:', operatorKeyStr ? operatorKeyStr.length : 'Missing');
 
-if (!operatorId || !operatorKey) {
+if (!operatorIdStr || !operatorKeyStr) {
     throw new Error('Environment variables OPERATOR_ID and OPERATOR_KEY must be present');
 }
 
+try {
+    AccountId.fromString(operatorIdStr);
+} catch {
+    throw new Error(`Invalid OPERATOR_ID format: ${operatorIdStr}`);
+}
+
+// --- Initialization Function ---
 async function initializeClient() {
     let privateKey;
 
     try {
-        if (typeof operatorKey !== 'string' || operatorKey.trim().length === 0) {
-            throw new Error("OPERATOR_KEY is empty or invalid. Please check your .env file.");
+        if (typeof operatorKeyStr !== 'string' || operatorKeyStr.trim().length === 0) {
+            throw new Error('OPERATOR_KEY is empty or invalid. Please check your .env file.');
         }
-        
-        // Key Derivation Logic (Supports Mnemonic or Direct Key)
-        if (operatorKey.includes(' ')) {
+
+        // Mnemonic-based derivation
+        if (operatorKeyStr.includes(' ')) {
             console.log('🔑 Detected mnemonic phrase, deriving private key...');
-            
-            const cleanMnemonic = operatorKey.replace(/["']/g, '').trim();
+            const cleanMnemonic = operatorKeyStr.replace(/["']/g, '').trim();
             const mnemonic = await Mnemonic.fromString(cleanMnemonic);
-            privateKey = await mnemonic.toStandardEd25519PrivateKey("", 0);
-            
+            privateKey = await mnemonic.toStandardEd25519PrivateKey();
             console.log('✅ Private key derived successfully from mnemonic');
         } else {
+            // Direct private key
             console.log('🔑 Using direct private key...');
-            
-            try {
-                privateKey = PrivateKey.fromString(operatorKey);
-            } catch (e) {
-                throw new Error("Invalid Private Key format detected. Check OPERATOR_KEY: " + e.message);
-            }
-
+            privateKey = PrivateKey.fromString(operatorKeyStr);
             console.log('✅ Private key loaded successfully');
         }
 
-        if (!privateKey || !privateKey.publicKey) {
-             throw new Error("Private key was not initialized correctly, likely due to a malformed key.");
-        }
+        // Create client for selected network
+        const client =
+            network === 'mainnet'
+                ? Client.forMainnet()
+                : network === 'previewnet'
+                ? Client.forPreviewnet()
+                : Client.forTestnet();
 
-        // Create and configure Hedera client
-        const client = Client.forTestnet();
+        // Set operator
+        const operatorId = AccountId.fromString(operatorIdStr);
         client.setOperator(operatorId, privateKey);
 
-        // --- CRITICAL FIX: Explicitly attach the private key for external signing ---
+        // ✅ Attach keys manually for controller usage
         client.operatorPrivateKey = privateKey;
-        // Also attach public key for use as Supply Key in NFT creation
         client.operatorPublicKey = privateKey.publicKey;
+        client.operatorAccountId = operatorId;
 
         console.log('✅ Hedera client initialized successfully');
-        console.log('📋 Account ID:', operatorId);
+        console.log('🌐 Network:', network);
+        console.log('📋 Account ID:', operatorId.toString());
 
         return client;
     } catch (error) {
@@ -65,5 +71,5 @@ async function initializeClient() {
     }
 }
 
-// Export the client initialization as a promise
-module.exports = initializeClient();
+// ⭐ FIX: Export the initialization function itself.
+module.exports = initializeClient;

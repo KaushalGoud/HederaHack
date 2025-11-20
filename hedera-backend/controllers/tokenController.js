@@ -1,150 +1,205 @@
-const SDK = require("@hashgraph/sdk"); // Import the entire SDK object
+const SDK = require('@hashgraph/sdk');
+const initializeClient = require('../utils/hederaClient');
 
-// client is a promise exported from hederaClient.js, so we must await it inside the functions
-const clientPromise = require('../utils/hederaClient');
+// Add debug logging
+console.log('DEBUG: initializeClient type:', typeof initializeClient);
 
-let tokenId;
-let clientInstance; // Cache the resolved client
+let clientInstance;
 
-// Helper to get and cache the client instance
+// --- CRITICAL FIX HELPER FUNCTION ---
+/**
+ * Generates a Hedera Timestamp object slightly in the past (5 seconds)
+ * to account for potential network clock skew, which causes the
+ * INVALID_TRANSACTION_START error.
+ * @returns {SDK.Timestamp} A Timestamp object used for creating a custom Transaction ID.
+ */
+function getPastTimestamp() {
+    // Get current time in milliseconds, subtract 5000ms (5s), and convert to seconds.
+    const nowInSeconds = Math.floor((Date.now() - 5000) / 1000);
+    // Convert the seconds back into the Hedera Timestamp object
+    return new SDK.Timestamp(nowInSeconds, 0); 
+}
+// ------------------------------------
+
+// Cache and reuse one Hedera client instance (using the singleton promise export)
 async function getClient() {
-    // Wait for the client promise to resolve the first time, then cache the instance
     if (!clientInstance) {
-        clientInstance = await clientPromise;
+        // initializeClient is a promise (the result of the function call in hederaClient.js)
+        console.log('🔄 Initializing Hedera client...');
+        clientInstance = await initializeClient; 
+        console.log('✅ Client initialized successfully');
     }
     return clientInstance;
 }
 
 /**
- * Creates a new Non-Fungible Unique (NFT) Token Collection.
+ * Create a new NFT token collection
  */
 const createToken = async (req, res) => {
+    console.log('📥 Received create-token request:', req.body);
+    
     try {
+        console.log('Step 1: Getting client...');
         const client = await getClient();
-        const { name, symbol } = req.body;
+        console.log('Step 2: Client obtained, operatorAccountId:', client.operatorAccountId?.toString());
         
-        // 1. Create a Non-Fungible Unique (NFT) Token
-        const tokenTx = await new SDK.TokenCreateTransaction()
-            .setTokenName(name || "NFT Receipt Collection")
-            .setTokenSymbol(symbol || "NFTREC")
+        const { name, symbol } = req.body;
+
+        // ⭐ FIX: Generate a custom TransactionId using the time slightly in the past
+        const customTxId = SDK.TransactionId.generate(client.operatorAccountId, getPastTimestamp());
+
+        console.log('Step 3: Creating TokenCreateTransaction...');
+        const tx = new SDK.TokenCreateTransaction()
+            .setTokenName(name || 'NFT Receipt Collection')
+            .setTokenSymbol(symbol || 'NFTREC')
             .setTreasuryAccountId(client.operatorAccountId)
-            .setSupplyKey(client.operatorPublicKey) // The operator's public key is the Supply Key (needed for minting)
-            .setInitialSupply(0) // NFTs must start with 0 supply
-            .setDecimals(0) // NFTs must have 0 decimals
-            .setTokenType(SDK.TokenType.NonFungibleUnique) // CRITICAL: Sets it as an NFT
-            .setSupplyType(SDK.TokenSupplyType.Infinite) // Updated to use SDK.TokenSupplyType
-            .setMaxTransactionFee(new SDK.Hbar(30)) // Updated to use SDK.Hbar
-            // FIX: Removed SDK.Duration constructor, setting duration directly using seconds (180s = 3 mins)
-            .setTransactionValidDuration(180) 
-            .freezeWith(client);
+            .setSupplyKey(client.operatorPublicKey)
+            .setInitialSupply(0)
+            .setDecimals(0)
+            .setTokenType(SDK.TokenType.NonFungibleUnique)
+            .setSupplyType(SDK.TokenSupplyType.Infinite)
+            .setMaxTransactionFee(new SDK.Hbar(30))
+            
+            // Apply the custom ID before freezing
+            .setTransactionId(customTxId) 
+            // FIX: Using new SDK.Duration(180) for extended validity
+            .setTransactionValidDuration(new SDK.Duration(180)); 
 
-        const signTx = await tokenTx.sign(client.operatorPrivateKey);
+        console.log('Step 4: Freezing transaction...');
+        const frozenTx = await tx.freezeWith(client);
+        
+        console.log('Step 5: Signing transaction...');
+        const signTx = await frozenTx.sign(client.operatorPrivateKey);
+        
+        console.log('Step 6: Executing transaction...');
         const txResponse = await signTx.execute(client);
+        
+        console.log('Step 7: Getting receipt...');
         const receipt = await txResponse.getReceipt(client);
-        tokenId = receipt.tokenId;
 
-        res.json({ 
-            success: true, 
-            tokenId: tokenId.toString(),
-            message: `NFT Collection ${tokenId.toString()} created successfully.`
+        const tokenId = receipt.tokenId.toString();
+        console.log(`✅ Token created successfully: ${tokenId}`);
+
+        res.json({
+            success: true,
+            tokenId,
+            message: `NFT Collection ${tokenId} created successfully.`,
         });
     } catch (err) {
-        console.error("Error creating token:", err);
-        res.status(500).json({ success: false, error: err.message });
+        console.error('❌ ERROR DETAILS:');
+        console.error('Error name:', err.name);
+        console.error('Error message:', err.message);
+        console.error('Error stack:', err.stack);
+        
+        // Send error response
+        res.status(500).json({ 
+            success: false, 
+            error: err.message,
+            errorType: err.name
+        });
     }
 };
 
 /**
- * Mints a new NFT with specific metadata (the receipt proof).
+ * Mint a new NFT with metadata
  */
 const mintToken = async (req, res) => {
+    console.log('📥 Received mint-token request:', req.body);
+    
     try {
         const client = await getClient();
-        if (!tokenId) {
-            return res.status(400).json({ success: false, error: "Token ID not set. Create a token first." });
-        }
+        const { tokenId, metadataUri } = req.body;
 
-        const { metadataUri } = req.body;
+        if (!tokenId) {
+            return res.status(400).json({ success: false, error: 'Token ID is required.' });
+        }
         
-        // 2. Mint a single NFT using metadata, not amount
+        // ⭐ FIX: Generate a custom TransactionId using the time slightly in the past
+        const customTxId = SDK.TransactionId.generate(client.operatorAccountId, getPastTimestamp());
+
         const metadata = Buffer.from(metadataUri || `ipfs://metadata/${Date.now()}`);
 
-        const mintTx = await new SDK.TokenMintTransaction()
+        const mintTx = new SDK.TokenMintTransaction()
             .setTokenId(tokenId)
-            .setMetadata([metadata]) // NFTs use metadata (Buffer or byte array)
-            .setMaxTransactionFee(new SDK.Hbar(30)) // Updated to use SDK.Hbar
-            // FIX: Removed SDK.Duration constructor, setting duration directly using seconds
-            .setTransactionValidDuration(180) 
-            .freezeWith(client);
+            .setMetadata([metadata])
+            .setMaxTransactionFee(new SDK.Hbar(30))
+            
+            // Apply the custom ID before freezing
+            .setTransactionId(customTxId)
+            // Use new SDK.Duration(180) for robustness
+            .setTransactionValidDuration(new SDK.Duration(180));
 
-        const signTx = await mintTx.sign(client.operatorPrivateKey); // Must sign with the Supply Key
+        const frozenTx = await mintTx.freezeWith(client);
+        const signTx = await frozenTx.sign(client.operatorPrivateKey);
         const txResponse = await signTx.execute(client);
         const receipt = await txResponse.getReceipt(client);
-        
-        // The serial number is the unique ID of the NFT
-        const serialNumber = receipt.serials[0].low;
 
-        res.json({ 
-            success: true, 
-            tokenId: tokenId.toString(),
-            serialNumber: serialNumber,
-            metadataUri: metadataUri,
-            message: `NFT Receipt minted successfully. Serial: ${serialNumber}`
+        const serialNumber = receipt.serials[0].low;
+        console.log(`✅ NFT minted: Token ${tokenId} Serial ${serialNumber}`);
+
+        res.json({
+            success: true,
+            tokenId,
+            serialNumber,
+            metadataUri,
+            message: `NFT minted successfully. Serial: ${serialNumber}`,
         });
     } catch (err) {
-        console.error("Error minting token:", err);
+        console.error('❌ Error minting token:', err.message);
+        console.error('Stack:', err.stack);
         res.status(500).json({ success: false, error: err.message });
     }
 };
 
 /**
- * Transfers a specific NFT serial number to a recipient account.
+ * Transfer NFT to a recipient
  */
 const transferToken = async (req, res) => {
+    console.log('📥 Received transfer-token request:', req.body);
+    
     try {
         const client = await getClient();
-        if (!tokenId) {
-            return res.status(400).json({ success: false, error: "Token ID not set." });
-        }
-        
-        const { recipient, serialNumber } = req.body;
-        
-        if (!serialNumber) {
-             return res.status(400).json({ success: false, error: "NFT serial number is required for transfer." });
-        }
-        
-        // 3. Transfer the specific NFT serial number from Treasury (operator) to recipient
-        const transferTx = await new SDK.TransferTransaction()
-            .addNftTransfer( // CRITICAL: Use addNftTransfer for NFTs
-                tokenId, 
-                serialNumber, 
-                client.operatorAccountId, // Sender (Treasury/Operator)
-                SDK.AccountId.fromString(recipient) // Updated to use SDK.AccountId
-            )
-            .setMaxTransactionFee(new SDK.Hbar(30)) // Updated to use SDK.Hbar
-            // FIX: Removed SDK.Duration constructor, setting duration directly using seconds
-            .setTransactionValidDuration(180) 
-            .freezeWith(client);
+        const { tokenId, recipient, serialNumber } = req.body;
 
-        const signTx = await transferTx.sign(client.operatorPrivateKey); // Treasury/Sender must sign
+        if (!tokenId || !recipient || !serialNumber) {
+            return res
+                .status(400)
+                .json({ success: false, error: 'tokenId, recipient, and serialNumber are required.' });
+        }
+        
+        // ⭐ FIX: Generate a custom TransactionId using the time slightly in the past
+        const customTxId = SDK.TransactionId.generate(client.operatorAccountId, getPastTimestamp());
+
+        const transferTx = new SDK.TransferTransaction()
+            .addNftTransfer(
+                SDK.NftId.fromString(`${tokenId}@${serialNumber}`),
+                client.operatorAccountId,
+                SDK.AccountId.fromString(recipient)
+            )
+            .setMaxTransactionFee(new SDK.Hbar(30))
+            
+            // Apply the custom ID before freezing
+            .setTransactionId(customTxId)
+            // Use new SDK.Duration(180) for robustness
+            .setTransactionValidDuration(new SDK.Duration(180));
+
+        const frozenTx = await transferTx.freezeWith(client);
+        const signTx = await frozenTx.sign(client.operatorPrivateKey);
         const txResponse = await signTx.execute(client);
         const receipt = await txResponse.getReceipt(client);
 
-        res.json({ 
-            success: true, 
+        console.log(`✅ NFT transferred: Serial ${serialNumber} to ${recipient}`);
+
+        res.json({
+            success: true,
             status: receipt.status.toString(),
-            message: `NFT Serial #${serialNumber} transferred to ${recipient}.`
+            message: `NFT Serial #${serialNumber} transferred to ${recipient}.`,
         });
     } catch (err) {
-        console.error("Error transferring token:", err);
+        console.error('❌ Error transferring token:', err.message);
+        console.error('Stack:', err.stack);
         res.status(500).json({ success: false, error: err.message });
     }
 };
 
-// --- EXPORT DEFINITIONS MUST BE LAST ---
-// Export all functions as an object, ensuring they are defined above this line.
-module.exports = {
-    createToken,
-    mintToken,
-    transferToken
-};
+module.exports = { createToken, mintToken, transferToken };
