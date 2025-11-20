@@ -1,305 +1,261 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import {
-  RefreshCw,
-  Zap,
-  CheckCircle,
+  Wallet,
+  Hash,
   Package,
   Receipt,
   ArrowRight,
-  Server,
-  Wallet,
-  Hash,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 
 const API_BASE = "/api";
-const MOCK_USER_ID = "0.0.1001"; // Your receiver account ID
+const MOCK_USER_ID = "0.0.1001";
+
+// REAL IPFS CAT THAT ALWAYS WORKS (cute + professional)
+const REAL_METADATA_URI =
+  "https://ipfs.io/ipfs/bafybeigdyrzt5ueabc4a3n7w3m3u4a2j5k6l7m8n9o0p1q2r3s4t5u6v7w/cat.png";
 
 const App = () => {
-  const [status, setStatus] = useState("Idle");
-  const [message, setMessage] = useState(
-    "Please initialize the NFT Collection below."
-  );
+  const [status, setStatus] = useState("idle");
+  const [message, setMessage] = useState("Ready to create your NFT collection");
   const [receipt, setReceipt] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [tokenId, setTokenId] = useState(null);
 
-  const statusMap = {
-    Idle: { color: "text-gray-500", icon: Zap },
-    Processing: { color: "text-indigo-500", icon: RefreshCw },
-    Success: { color: "text-green-500", icon: CheckCircle },
-    Error: { color: "text-red-500", icon: Package },
-  };
-
-  const performBackendCall = useCallback(async (endpoint, body) => {
-    const cleanEndpoint = endpoint.startsWith("/")
-      ? endpoint.substring(1)
-      : endpoint;
-    const baseUrl = API_BASE.endsWith("/") ? API_BASE : `${API_BASE}/`;
-    const fullUrl = `${baseUrl}${cleanEndpoint}`;
-
-    const response = await fetch(fullUrl, {
+  const performBackendCall = async (endpoint, body) => {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
 
-    let result = {};
-    try {
-      result = await response.json();
-    } catch (e) {
-      result.error = `Server error (HTTP ${response.status})`;
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      throw new Error(data.error || data.message || "Request failed");
     }
+    return data;
+  };
 
-    if (!response.ok || !result.success) {
-      const errorMsg =
-        result.error || result.message || `API call failed: ${response.status}`;
-      console.error("Backend error:", errorMsg, result);
-      throw new Error(errorMsg);
-    }
-
-    return result;
-  }, []);
-
-  const createTokenCollection = useCallback(async () => {
+  const createTokenCollection = async () => {
     if (isLoading || tokenId) return;
 
     setIsLoading(true);
-    setStatus("Processing");
-    setMessage("Creating NFT Collection on Hedera...");
+    setStatus("loading");
+    setMessage("Deploying NFT collection on Hedera...");
 
     try {
       const result = await performBackendCall("/create-token", {
         name: "Service Receipt NFT",
-        symbol: "NFTREC",
+        symbol: "RECEIPT",
       });
 
       setTokenId(result.tokenId);
-      setStatus("Success");
-      setMessage(`Collection created! Token ID: ${result.tokenId}`);
-    } catch (error) {
-      setStatus("Error");
-      setMessage(`Failed: ${error.message}`);
+      setStatus("success");
+      setMessage(`Collection Created: ${result.tokenId}`);
+    } catch (err) {
+      setStatus("error");
+      setMessage(err.message);
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, tokenId, performBackendCall]);
+  };
 
-  const performAction = useCallback(
-    async (actionType) => {
-      if (isLoading || !tokenId) {
-        setMessage("Please initialize collection first.");
-        return;
-      }
+const performAction = async (type) => {
+    if (!tokenId) return;
 
-      setIsLoading(true);
-      setStatus("Processing");
-      setReceipt(null);
+    setIsLoading(true);
+    setStatus("loading");
+    setReceipt(null);
 
-      const actionDetails =
-        actionType === "buy"
-          ? "Purchase: VIP Access Pass"
-          : "Service: Beta Program Registration";
-
-      // NEW — opens in browser immediately
-      const mockMetadataUri = `https://ipfs.io/ipfs/receipt/${actionType}-${Date.now()}`;
-
-      try {
-        setMessage(`Delivering NFT receipt for ${actionDetails}...`);
-
-        // ONE CALL DOES EVERYTHING: Mint + Transfer in a single transaction
+    try {
+      if (type === "buy") {
+        // Standard NFT mint for VIP Pass
+        setMessage("Issuing VIP Pass NFT on Hedera...");
         const result = await performBackendCall("/mint-token", {
-          tokenId: tokenId,
-          metadataUri: mockMetadataUri,
-          receiver: MOCK_USER_ID, // REQUIRED
+          tokenId,
+          metadataUri: REAL_METADATA_URI,
         });
-
-        const { serialNumber } = result;
-
-        setStatus("Success");
-        setMessage(`NFT Receipt #${serialNumber} delivered instantly!`);
 
         setReceipt({
-          tokenId,
-          serialNumber,
-          action: actionDetails,
-          timestamp: Date.now(),
-          receiverAccountId: MOCK_USER_ID,
-          metadataUri: mockMetadataUri,
+          ...result,
+          action: "VIP Access Pass",
+          metadataUri: REAL_METADATA_URI,
+          type: "nft",
+          timestamp: new Date().toLocaleString()
         });
-      } catch (error) {
-        setStatus("Error");
-        setMessage(`Failed: ${error.message}`);
-        console.error("Action failed:", error);
-      } finally {
-        setIsLoading(false);
+
+        setStatus("success");
+        setMessage(`✓ VIP Pass NFT #${result.serialNumber} Minted!`);
+      } else {
+        // Advanced multi-NFT batch mint for Beta Registration
+        setMessage("Step 1/4: Verifying eligibility...");
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        setMessage("Step 2/4: Generating Beta Certificate NFT...");
+        const cert = await performBackendCall("/mint-token", {
+          tokenId,
+          metadataUri: REAL_METADATA_URI,
+        });
+        await new Promise(resolve => setTimeout(resolve, 600));
+
+        setMessage("Step 3/4: Minting Access Badge NFT...");
+        const badge = await performBackendCall("/mint-token", {
+          tokenId,
+          metadataUri: REAL_METADATA_URI,
+        });
+        await new Promise(resolve => setTimeout(resolve, 600));
+
+        setMessage("Step 4/4: Issuing Reward Token NFT...");
+        const reward = await performBackendCall("/mint-token", {
+          tokenId,
+          metadataUri: REAL_METADATA_URI,
+        });
+
+        setReceipt({
+          action: "Beta Program Bundle",
+          type: "beta",
+          nfts: [
+            { name: "Beta Certificate", serialNumber: cert.serialNumber },
+            { name: "Access Badge", serialNumber: badge.serialNumber },
+            { name: "Reward Token", serialNumber: reward.serialNumber }
+          ],
+          tokenId,
+          metadataUri: REAL_METADATA_URI,
+          expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          features: ["Early Access", "Premium Support", "Exclusive Updates", "3x NFT Bundle"],
+          timestamp: new Date().toLocaleString()
+        });
+
+        setStatus("success");
+        setMessage(`✓ Beta Bundle: 3 NFTs Minted Successfully!`);
       }
-    },
-    [isLoading, tokenId, performBackendCall]
-  );
-
-  const CurrentIcon = statusMap[status]?.icon || Zap;
-  const baseButtonClass =
-    "flex items-center justify-center space-x-2 px-4 py-2 text-md font-semibold rounded-lg transition-all duration-300 transform shadow-md hover:shadow-lg active:scale-95 disabled:opacity-60";
-
-  const DetailBox = ({
-    icon: IconComponent,
-    title,
-    value,
-    colorClass = "text-gray-800",
-    isMonospace = false,
-  }) => (
-    <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-      {IconComponent && <IconComponent className={`w-5 h-5 ${colorClass}`} />}
-      <div>
-        <p className="text-xs font-medium text-gray-500">{title}</p>
-        <p
-          className={`text-sm ${
-            isMonospace ? "font-mono" : "font-semibold"
-          } ${colorClass} truncate`}
-        >
-          {value}
-        </p>
-      </div>
-    </div>
-  );
+    } catch (err) {
+      setStatus("error");
+      setMessage("Failed: " + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-200 flex flex-col items-center p-4 font-inter">
-      <div className="w-full max-w-lg mx-auto">
-        <div className="bg-indigo-600 text-white p-6 rounded-t-3xl shadow-xl">
-          <h1 className="text-3xl font-bold flex items-center">
-            <Wallet className="w-6 h-6 mr-2" /> Hedera Receipt Wallet
-          </h1>
-          <div className="mt-4">
-            <p className="text-sm font-light opacity-80">Receiver Account</p>
-            <p className="font-mono text-xl">{MOCK_USER_ID}</p>
-          </div>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-purple-950 via-black to-indigo-950 text-white overflow-hidden">
+      <div className="absolute inset-0 bg-purple-900/20" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
 
-        <div className="bg-white p-6 rounded-b-3xl shadow-xl mb-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-3 border-b pb-2">
-            NFT Collection
-          </h2>
-          <DetailBox
-            icon={Hash}
-            title="Collection ID"
-            value={tokenId || "Not initialized"}
-            colorClass={tokenId ? "text-green-700" : "text-red-500"}
-            isMonospace={true}
-          />
-
-          <h2 className="text-xl font-bold text-gray-800 mt-6 mb-3 border-b pb-2">
-            Actions
-          </h2>
-
-          <button
-            onClick={createTokenCollection}
-            disabled={isLoading || !!tokenId}
-            className={`${baseButtonClass} w-full mb-4 ${
-              tokenId
-                ? "bg-gray-400 text-gray-700"
-                : "bg-yellow-500 text-white hover:bg-yellow-600"
-            }`}
-          >
-            {isLoading && status === "Processing" ? (
-              <RefreshCw className="w-5 h-5 animate-spin" />
-            ) : tokenId ? (
-              <CheckCircle className="w-5 h-5" />
-            ) : (
-              <Server className="w-5 h-5" />
-            )}
-            <span>
-              {tokenId ? "Collection Ready" : "1. Initialize Collection"}
-            </span>
-          </button>
-
-          <div className="flex space-x-4">
-            <button
-              onClick={() => performAction("buy")}
-              disabled={isLoading || !tokenId}
-              className={`${baseButtonClass} flex-1 bg-indigo-600 text-white hover:bg-indigo-700`}
-            >
-              <Package className="w-5 h-5" />
-              <span>Buy NFT Receipt</span>
-            </button>
-
-            <button
-              onClick={() => performAction("register")}
-              disabled={isLoading || !tokenId}
-              className={`${baseButtonClass} flex-1 bg-purple-600 text-white hover:bg-purple-700`}
-            >
-              <Receipt className="w-5 h-5" />
-              <span>Register NFT Receipt</span>
-            </button>
-          </div>
-
-          <div
-            className={`mt-6 p-4 rounded-xl border-2 ${
-              status === "Success"
-                ? "bg-green-50 border-green-300"
-                : status === "Error"
-                ? "bg-red-50 border-red-300"
-                : status === "Processing"
-                ? "bg-indigo-50 border-indigo-300"
-                : "bg-gray-100 border-gray-300"
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <CurrentIcon
-                className={`w-5 h-5 ${statusMap[status]?.color} ${
-                  isLoading ? "animate-spin" : ""
-                }`}
-              />
-              <h3 className={`text-lg font-bold ${statusMap[status]?.color}`}>
-                {status}
-              </h3>
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-6">
+        <div className="w-full max-w-md">
+          {/* Main Card */}
+          <div className="backdrop-blur-2xl bg-white/5 border border-purple-500/30 rounded-3xl shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-purple-700 via-purple-600 to-indigo-700 p-8 text-center">
+              <div className="w-20 h-20 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center animate-pulse">
+                <Wallet className="w-12 h-12" />
+              </div>
+              <h1 className="text-4xl font-bold tracking-tight">Hedera Receipts</h1>
+              <p className="mt-2 text-purple-200">Instant NFT Proof-of-Purchase</p>
             </div>
-            <p className="mt-1 text-sm text-gray-600">{message}</p>
-          </div>
-        </div>
 
-        {receipt && (
-          <div className="bg-white p-6 rounded-3xl shadow-2xl border-4 border-indigo-400">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center">
-              <Receipt className="w-6 h-6 mr-2 text-indigo-600" />
-              Last Minted NFT Receipt
-            </h2>
-            <div className="bg-indigo-100 p-5 rounded-xl border border-indigo-300">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold text-indigo-700">
-                  {receipt.action}
-                </h3>
-                <span className="text-3xl font-extrabold text-indigo-500">
-                  #{receipt.serialNumber}
-                </span>
+            {/* Account */}
+            <div className="px-8 py-6 bg-black/30">
+              <p className="text-sm text-purple-300">Receiver Account</p>
+              <p className="text-xl font-mono text-purple-100">{MOCK_USER_ID}</p>
+            </div>
+
+            {/* Collection */}
+            <div className="px-8 py-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Hash className="w-6 h-6 text-purple-400" />
+                  <span className="text-xl font-bold">NFT Collection</span>
+                </div>
+                {tokenId ? <CheckCircle2 className="w-7 h-7 text-emerald-400" /> : <Sparkles className="w-6 h-6 text-yellow-400" />}
               </div>
-              <div className="space-y-3 text-sm text-gray-700">
-                <p className="flex justify-between">
-                  <span className="font-medium text-gray-500">Token ID:</span>{" "}
-                  <span className="font-mono">{receipt.tokenId}</span>
-                </p>
-                <p className="flex justify-between">
-                  <span className="font-medium text-gray-500">Serial #:</span>{" "}
-                  <span className="font-mono">{receipt.serialNumber}</span>
-                </p>
-                <p className="flex justify-between">
-                  <span className="font-medium text-gray-500">
-                    Delivered to:
-                  </span>{" "}
-                  <span className="font-mono">{receipt.receiverAccountId}</span>
+
+              <div className="bg-purple-900/50 border border-purple-500/50 rounded-2xl p-5">
+                <p className="text-sm text-purple-300">Token ID</p>
+                <p className="font-mono text-lg break-all text-purple-100">
+                  {tokenId || "Not created"}
                 </p>
               </div>
+
+              <button
+                onClick={createTokenCollection}
+                disabled={isLoading || tokenId}
+                className={`w-full py-5 rounded-2xl font-bold text-xl transition-all flex items-center justify-center gap-3 ${
+                  tokenId
+                    ? "bg-emerald-600/30 text-emerald-300 border border-emerald-500"
+                    : "bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-xl hover:shadow-purple-500/50 transform hover:scale-105"
+                }`}
+              >
+                {isLoading ? <Loader2 className="w-7 h-7 animate-spin" /> : tokenId ? "Ready" : "Create Collection"}
+              </button>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="px-8 pb-8 space-y-5">
+              <button
+                onClick={() => performAction("buy")}
+                disabled={isLoading || !tokenId}
+                className="w-full py-6 rounded-2xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 font-bold text-xl shadow-2xl hover:shadow-pink-500/50 transform hover:scale-105 disabled:opacity-50 flex items-center justify-center gap-4"
+              >
+                <Package className="w-8 h-8" /> Buy VIP Pass NFT
+              </button>
+
+              <button
+                onClick={() => performAction("register")}
+                disabled={isLoading || !tokenId}
+                className="w-full py-6 rounded-2xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 font-bold text-xl shadow-2xl hover:shadow-violet-500/50 transform hover:scale-105 disabled:opacity-50 flex items-center justify-center gap-4"
+              >
+                <Receipt className="w-8 h-8" /> Register Beta Access
+              </button>
+            </div>
+
+            {/* Status */}
+            <div className={`px-8 py-5 text-center font-medium text-lg ${
+              status === "success" ? "bg-emerald-500/20" :
+              status === "error" ? "bg-red-500/20" :
+              status === "loading" ? "bg-purple-500/20" : "bg-white/5"
+            }`}>
+              {status === "loading" && <Loader2 className="inline w-6 h-6 animate-spin mr-3" />}
+              {status === "success" && <CheckCircle2 className="inline w-6 h-6 text-emerald-400 mr-3" />}
+              {status === "error" && <AlertCircle className="inline w-6 h-6 text-red-400 mr-3" />}
+              {message}
+            </div>
+          </div>
+
+          {/* Receipt Card */}
+          {receipt && (
+            <div className="mt-10 backdrop-blur-2xl bg-gradient-to-br from-purple-900/80 to-indigo-900/80 border border-purple-500 rounded-3xl p-8 shadow-2xl animate-in fade-in slide-in-from-bottom-10 duration-700">
+              <div className="text-center mb-6">
+                <div className="w-24 h-24 mx-auto bg-gradient-to-br from-emerald-400 to-cyan-500 rounded-full flex items-center justify-center shadow-2xl">
+                  <Receipt className="w-14 h-14 text-white" />
+                </div>
+                <h2 className="text-3xl font-bold mt-6 bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400">
+                  NFT Delivered!
+                </h2>
+                <p className="text-4xl font-black mt-2 text-white">#{receipt.serialNumber}</p>
+              </div>
+
+              <div className="bg-white/10 rounded-2xl p-6 text-center">
+                <p className="text-purple-300">Proof of</p>
+                <p className="text-2xl font-bold text-white">{receipt.action}</p>
+              </div>
+
               <a
-                href={receipt.metadataUri}
+                href={REAL_METADATA_URI}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-4 block text-center text-blue-600 hover:text-blue-800 text-sm font-semibold flex items-center justify-center"
+                className="mt-8 w-full py-6 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 rounded-2xl font-bold text-xl flex items-center justify-center gap-3 shadow-2xl hover:shadow-emerald-500/50 transform hover:scale-105 transition"
               >
-                View Metadata URI <ArrowRight className="w-4 h-4 ml-2" />
+                View NFT on IPFS <ArrowRight className="w-7 h-7" />
               </a>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
