@@ -1,9 +1,6 @@
 # Hedera Instant NFT Receipts ⚡
 
-GitHub Repo:https://github.com/KaushalGoud/HederaHack.git
-
-
-
+Pitch(pdf):https://drive.google.com/file/d/1Mmt7icLX_mL6rEH3fPZTvRoulpD2Y6Po/view?usp=drive_link
 
 Demo Video (1 min):https://www.youtube.com/watch?v=lvDQ5Thyf0c
 
