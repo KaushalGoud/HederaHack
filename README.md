@@ -23,16 +23,21 @@ Built for speed, beauty, and real-world usability — proving Hedera can deliver
 | Blockchain      | Hedera Testnet                               |
 | SDK             | @hashgraph/sdk@latest                        |
 |       |                        |
-| Deployment      | Frontend: Netlify
-| Environment     | .env + Vite proxy                            |
+| Environment     | .env  Vite proxy                            |
 
 # Backend
 cd hedera-backend
+
 npm install
+
 Add your testnet operator ID & key in .env
+
 npm run dev
 
 # Frontend (new terminal)
-cd frontend
+cd hedera-frontend
+
 npm install
+
 npm run dev
+
